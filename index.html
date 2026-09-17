@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Sensor Weave</title>
+<meta name="description" content="A moving high-contrast pattern for your phone screen, so an optical mouse laid face-down on it keeps tracking.">
+<meta name="theme-color" content="#12140f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sensor Weave">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --panel:#12140f; --panel-2:#1c1f17; --line:#3a3f33;
+    --text:#e9ead9; --muted:#9a9e8c; --accent:#d7ff3f;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme:dark;
+  }
+  html,body{height:100%;margin:0;background:#fff;color:var(--text);font-family:var(--mono);font-size:13px;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;}
+  #stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:none;}
+  #hud{position:fixed;left:0;right:0;bottom:0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px;transition:transform .25s ease;max-height:72vh;overflow-y:auto;}
+  #hud.hidden{transform:translateY(105%);}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .title{font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:12px;}
+  .status{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px;text-align:right;}
+  .status b{color:var(--accent);font-weight:600;}
+  label{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:10px;min-width:64px;}
+  input[type=range]{flex:1;min-width:120px;accent-color:var(--accent);}
+  .val{min-width:56px;text-align:right;font-variant-numeric:tabular-nums;}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+  .seg button{background:var(--panel-2);color:var(--text);border:0;padding:8px 12px;font:inherit;cursor:pointer;}
+  .seg button+button{border-left:1px solid var(--line);}
+  .seg button[aria-pressed=true]{background:var(--accent);color:#0f120a;font-weight:600;}
+  .btn{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px 14px;font:inherit;cursor:pointer;}
+  .btn.primary{background:var(--accent);color:#0f120a;border-color:var(--accent);font-weight:600;}
+  .btn:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .note{color:var(--muted);font-size:11px;line-height:1.55;max-width:62ch;margin:0;}
+  .note b{color:var(--text);font-weight:600;}
+  #bright{display:flex;gap:10px;align-items:flex-start;background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:4px;padding:10px 12px;}
+  #bright .k{color:var(--accent);font-weight:600;font-size:10px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;padding-top:1px;}
+  #peek{position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));width:38px;height:38px;border-radius:50%;background:var(--panel);border:1px solid var(--line);color:var(--accent);font:600 15px var(--mono);display:none;align-items:center;justify-content:center;opacity:.32;}
+  #peek.show{display:flex;}
+  #install{display:none;}
+  #install.show{display:inline-block;}
+  @media (prefers-reduced-motion: reduce){ #hud{transition:none;} }
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Moving high-contrast pattern"></canvas>
+<button id="peek" aria-label="Show controls">≡</button>
+
+<div id="hud">
+  <div class="head">
+    <span class="title">Sensor Weave</span>
+    <span class="status" id="status">stopped</span>
+  </div>
+
+  <div id="bright">
+    <span class="k">Brightness</span>
+    <p class="note">No web API can change screen brightness — set it to max yourself, and turn <b>auto-brightness off</b> so the phone doesn't dim the pattern out from under the sensor. Everything else (screen stays awake, fullscreen) is automatic on Start.</p>
+  </div>
+
+  <div class="row">
+    <button class="btn primary" id="toggle">Start</button>
+    <button class="btn" id="invert">Invert</button>
+    <button class="btn" id="hide">Hide</button>
+    <button class="btn" id="install">Install</button>
+  </div>
+
+  <div class="row">
+    <label>Path</label>
+    <div class="seg" id="mode" role="group" aria-label="Motion path">
+      <button data-mode="orbit" aria-pressed="true">Orbit</button>
+      <button data-mode="eight" aria-pressed="false">Figure-8</button>
+      <button data-mode="drift" aria-pressed="false">Drift</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label for="speed">Speed</label>
+    <input type="range" id="speed" min="2" max="120" step="1" value="18">
+    <span class="val" id="speedVal">18 px/s</span>
+  </div>
+  <div class="row" id="radiusRow">
+    <label for="radius">Radius</label>
+    <input type="range" id="radius" min="20" max="400" step="5" value="120">
+    <span class="val" id="radiusVal">120 px</span>
+  </div>
+  <div class="row" id="angleRow" hidden>
+    <label for="angle">Heading</label>
+    <input type="range" id="angle" min="0" max="359" step="1" value="30">
+    <span class="val" id="angleVal">30°</span>
+  </div>
+  <div class="row">
+    <label for="tile">Tile</label>
+    <input type="range" id="tile" min="40" max="240" step="4" value="96">
+    <span class="val" id="tileVal">96 px</span>
+  </div>
+
+  <p class="note">Lay the mouse face-down on the pattern. Orbit and Figure-8 loop the cursor back on itself so it never parks at a screen edge. If the sensor won't lock, shrink the tile or hit Invert — cheap LED sensors often prefer one polarity over the other on glass. Tap the pattern to hide or show these controls.</p>
+</div>
+
+<script>
+(function(){
+  const cv = document.getElementById('stage');
+  const ctx = cv.getContext('2d', {alpha:false});
+  const hud = document.getElementById('hud');
+  const peek = document.getElementById('peek');
+  const statusEl = document.getElementById('status');
+
+  const SAVE = 'sensor-weave-v1';
+  const state = { running:false, mode:'orbit', speed:18, radius:120, angle:30, tile:96, invert:false,
+                  x:0, y:0, phase:0, last:0 };
+  try { Object.assign(state, JSON.parse(localStorage.getItem(SAVE)||'{}'), {running:false, x:0, y:0, phase:0}); } catch(e){}
+  const persist = () => { try { localStorage.setItem(SAVE, JSON.stringify({mode:state.mode,speed:state.speed,radius:state.radius,angle:state.angle,tile:state.tile,invert:state.invert})); } catch(e){} };
+
+  let dpr = 1, W = 0, H = 0, pattern = null;
+
+  function makeTile(T){
+    const off = document.createElement('canvas');
+    off.width = Math.round(T*dpr); off.height = Math.round(T*dpr);
+    const c = off.getContext('2d');
+    c.scale(dpr, dpr);
+    const fg = state.invert ? '#fff' : '#000', bg = state.invert ? '#000' : '#fff';
+    c.fillStyle = bg; c.fillRect(0,0,T,T);
+    c.strokeStyle = fg; c.lineCap = 'butt';
+    const cx = T/2, cy = T/2, lw = Math.max(1, T/64);
+    c.lineWidth = lw;
+    const sq = (r, rot) => { c.save(); c.translate(cx,cy); c.rotate(rot); c.strokeRect(-r,-r,2*r,2*r); c.restore(); };
+
+    const rOut = T/2, rIn = T*0.30, step = T/16;
+    [[0,-1],[1,0],[0,1],[-1,0]].forEach(([qx,qy], i) => {
+      c.save();
+      c.beginPath();
+      const s = q => q*rOut, t = q => q*rIn;
+      if (qy!==0){ c.moveTo(cx-rOut, cy+s(qy)); c.lineTo(cx+rOut, cy+s(qy)); c.lineTo(cx+rIn, cy+t(qy)); c.lineTo(cx-rIn, cy+t(qy)); }
+      else       { c.moveTo(cx+s(qx), cy-rOut); c.lineTo(cx+s(qx), cy+rOut); c.lineTo(cx+t(qx), cy+rIn); c.lineTo(cx+t(qx), cy-rIn); }
+      c.closePath(); c.clip();
+      c.beginPath();
+      const dir = (i%2===0) ? 1 : -1;
+      for (let k=-2*T; k<=2*T; k+=step){ c.moveTo(k, 0); c.lineTo(k + dir*T, T); }
+      c.stroke();
+      c.restore();
+    });
+
+    sq(rOut - lw/2, 0); sq(T*0.40, Math.PI/4); sq(T*0.30, 0);
+    sq(T*0.25, Math.PI/4); sq(T*0.19, 0); sq(T*0.14, Math.PI/4); sq(T*0.10, 0);
+    c.beginPath(); c.arc(cx,cy,T*0.06,0,Math.PI*2); c.stroke();
+    c.beginPath(); c.moveTo(cx-T*0.1,cy); c.lineTo(cx+T*0.1,cy); c.moveTo(cx,cy-T*0.1); c.lineTo(cx,cy+T*0.1); c.stroke();
+    [[0,0],[T,0],[0,T],[T,T]].forEach(([x,y])=>{ c.save(); c.translate(x,y); c.rotate(Math.PI/4); c.strokeRect(-T*0.04,-T*0.04,T*0.08,T*0.08); c.restore(); });
+
+    const p = ctx.createPattern(off, 'repeat');
+    if (p.setTransform) p.setTransform(new DOMMatrix().scale(1/dpr));
+    return p;
+  }
+
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    pattern = makeTile(state.tile);
+    draw();
+  }
+
+  function draw(){
+    ctx.save();
+    ctx.translate(state.x, state.y);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(-state.x - state.tile*2, -state.y - state.tile*2, W + state.tile*4, H + state.tile*4);
+    ctx.restore();
+  }
+
+  function frame(t){
+    if (!state.running) return;
+    const dt = Math.min(0.1, (t - state.last)/1000 || 0); state.last = t;
+    const v = state.speed, R = state.radius;
+    if (state.mode === 'drift'){
+      const a = state.angle*Math.PI/180;
+      state.x = (state.x + Math.cos(a)*v*dt) % state.tile;
+      state.y = (state.y + Math.sin(a)*v*dt) % state.tile;
+    } else {
+      state.phase += (v / Math.max(R,1)) * dt;
+      const p = state.phase;
+      if (state.mode === 'orbit'){ state.x = R*Math.cos(p); state.y = R*Math.sin(p); }
+      else { state.x = R*Math.sin(p); state.y = R*Math.sin(2*p)/2; }
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  /* ---- keep the screen on ---- */
+  let lock = null;
+  async function acquire(){
+    if (!('wakeLock' in navigator)) return;
+    try {
+      lock = await navigator.wakeLock.request('screen');
+      lock.addEventListener('release', ()=>{ lock = null; setStatus(); });
+    } catch(e){ lock = null; }
+    setStatus();
+  }
+  async function release(){ try { if (lock) await lock.release(); } catch(e){} lock = null; setStatus(); }
+  document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && state.running && !lock) acquire(); });
+  window.addEventListener('focus', ()=>{ if (state.running && !lock) acquire(); });
+
+  function goFullscreen(){
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'}).catch(()=>{});
+  }
+
+  function setStatus(){
+    const awake = lock ? 'awake' : ('wakeLock' in navigator ? 'dimming' : 'no wake lock');
+    statusEl.innerHTML = (state.running ? 'moving' : 'stopped') + ' · <b>' + state.speed + '</b> px/s · ' + (state.running ? awake : '—');
+  }
+
+  /* ---- controls ---- */
+  const toggle = document.getElementById('toggle');
+  toggle.addEventListener('click', ()=>{
+    state.running = !state.running;
+    toggle.textContent = state.running ? 'Stop' : 'Start';
+    if (state.running){ state.last = performance.now(); acquire(); goFullscreen(); requestAnimationFrame(frame); hideHud(); }
+    else release();
+    setStatus();
+  });
+  document.getElementById('invert').addEventListener('click', ()=>{ state.invert = !state.invert; pattern = makeTile(state.tile); draw(); persist(); });
+
+  function hideHud(){ hud.classList.add('hidden'); peek.classList.add('show'); }
+  function showHud(){ hud.classList.remove('hidden'); peek.classList.remove('show'); }
+  document.getElementById('hide').addEventListener('click', hideHud);
+  peek.addEventListener('click', showHud);
+  cv.addEventListener('pointerdown', ()=>{ hud.classList.contains('hidden') ? showHud() : hideHud(); });
+
+  document.querySelectorAll('#mode button').forEach(b=>{
+    if (b.dataset.mode === state.mode) document.querySelectorAll('#mode button').forEach(x=>x.setAttribute('aria-pressed', String(x===b)));
+    b.addEventListener('click', ()=>{
+      document.querySelectorAll('#mode button').forEach(x=>x.setAttribute('aria-pressed', String(x===b)));
+      state.mode = b.dataset.mode;
+      document.getElementById('angleRow').hidden = state.mode !== 'drift';
+      document.getElementById('radiusRow').hidden = state.mode === 'drift';
+      if (state.mode === 'drift'){ state.x = 0; state.y = 0; }
+      persist();
+    });
+  });
+
+  const bind = (id, key, fmt, after) => {
+    const el = document.getElementById(id), out = document.getElementById(id+'Val');
+    el.value = state[key]; out.textContent = fmt(state[key]);
+    el.addEventListener('input', ()=>{ state[key] = +el.value; out.textContent = fmt(state[key]); if (after) after(); setStatus(); persist(); });
+  };
+  bind('speed','speed', v=>v+' px/s');
+  bind('radius','radius', v=>v+' px');
+  bind('angle','angle', v=>v+'°');
+  bind('tile','tile', v=>v+' px', ()=>{ pattern = makeTile(state.tile); draw(); });
+  document.getElementById('angleRow').hidden = state.mode !== 'drift';
+  document.getElementById('radiusRow').hidden = state.mode === 'drift';
+
+  /* ---- install ---- */
+  let deferred = null;
+  const installBtn = document.getElementById('install');
+  window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferred = e; installBtn.classList.add('show'); });
+  installBtn.addEventListener('click', async ()=>{
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice;
+    deferred = null; installBtn.classList.remove('show');
+  });
+  window.addEventListener('appinstalled', ()=>{ installBtn.classList.remove('show'); });
+
+  /* ---- offline ---- */
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  setStatus();
+})();
+</script>
+
+</body>
+</html>
