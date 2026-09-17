@@ -1,5 +1,5 @@
 /* Sensor Weave — cache-first shell so the pattern works with the phone offline. */
-const CACHE = 'sensor-weave-v1';
+const CACHE = 'sensor-weave-v2';
 const SHELL = [
   './',
   './index.html',
